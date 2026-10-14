@@ -1,0 +1,19 @@
+[2026-10-14 08:12:01] INFO  connection from 192.168.1.50 accepted (internal, should be ignored)
+[2026-10-14 08:12:02] WARN  failed login from 45.155.204.9 for user admin
+[2026-10-14 08:12:03] WARN  failed login from 45.155.204.9 for user root
+[2026-10-14 08:12:04] ALERT malware callback to http://evil-c2.example.net:8080/beacon seen
+[2026-10-14 08:12:05] ALERT same host resolved evil-c2.example.net again
+[2026-10-14 08:12:06] INFO  defanged IOC in report: 185.220[.]101[.]4 and hxxp://malware-drop[.]ru/payload.exe
+[2026-10-14 08:12:07] INFO  analyst note: contact soc[@]evil-c2.example.net for takedown
+[2026-10-14 08:12:08] ALERT file hash 5d41402abc4b2a76b9719d911017c592 dropped by 185.220.101.4
+[2026-10-14 08:12:09] ALERT sha1 da39a3ee5e6b4b0d3255bfef95601890afd80709 in quarantine
+[2026-10-14 08:12:10] ALERT sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 seen
+[2026-10-14 08:12:11] INFO  benign: updated from https://www.google.com and https://microsoft.com/security
+[2026-10-14 08:12:12] ALERT cve CVE-2026-104935 exploited in the wild
+[2026-10-14 08:12:13] ALERT also CVE-2024-1234 and cve-2026-104935 (duplicate, case-insensitive)
+[2026-10-14 08:12:14] INFO  ipv6 attacker 2606:4700:4700::1111 blocked
+[2026-10-14 08:12:14] INFO  phishing domain login-secure.tk reported twice, login-secure.tk again
+[2026-10-14 08:12:15] INFO  link-local fe80::1 ignored, loopback 127.0.0.1 ignored
+[2026-10-14 08:12:16] WARN  failed login from 45.155.204.9 for user admin (third hit)
+[2026-10-14 08:12:17] INFO  10.0.0.5 internal scanner, 999.999.999.999 is not a real IP
+[2026-10-14 08:12:18] ALERT second drop of 5d41402abc4b2a76b9719d911017c592 confirmed
