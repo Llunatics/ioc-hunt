@@ -8,6 +8,7 @@ Extract Indicators of Compromise (IOCs) from raw log/text. Stdlib-only Python CL
 - Detects defanged IOCs (`1.2.3[.]4`, `hxxp://`, `example[.]com`) and reports the refanged form
 - De-duplicates and counts occurrences
 - Whitelists private/loopback IPs and common benign domains (editable list in source)
+- `--include-private` to also report internal IPs when pivoting on local logs
 - Output as ASCII table, JSON, or CSV
 
 ## Install
@@ -38,6 +39,9 @@ cat firewall.log | ./ioc_hunt.py
 
 # only IOCs seen at least 3 times
 ./ioc_hunt.py --min-count 3 auth.log
+
+# include private/loopback/link-local IPs (skipped by default)
+./ioc_hunt.py --include-private auth.log
 ```
 
 ## Example
@@ -61,8 +65,8 @@ $ ./ioc_hunt.py tests/sample.log
 
 | Type | Matches | Notes |
 |------|---------|-------|
-| `ipv4` | `45.155.204.9` | validated octets; private/loopback skipped |
-| `ipv6` | `2606:4700:4700::1111` | `::` compression supported; private/link-local skipped |
+| `ipv4` | `45.155.204.9` | validated octets; private/loopback skipped unless `--include-private` |
+| `ipv6` | `2606:4700:4700::1111`, `::1` | `::` compression (incl. leading `::`) and IPv4-mapped forms supported; private/link-local skipped unless `--include-private` |
 | `domain` | `evil.example.net` | benign domains (`google.com`, `microsoft.com`, …) skipped |
 | `url` | `http://x/y` | host folded in — not double-counted as domain |
 | `email` | `soc@evil.example.net` | same host-folding as URL |

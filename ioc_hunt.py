@@ -17,7 +17,7 @@ import json
 import re
 import sys
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 # ---------------------------------------------------------------------------
 # Defang handling
@@ -49,7 +49,12 @@ PATTERNS = {
         r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
     ),
     "ipv4": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
-    "ipv6": re.compile(r"\b[0-9A-Fa-f:]{3,}\b"),
+    # IPv6: at least two colons required by the pattern itself (covers ::1,
+    # ::ffff:1.2.3.4, 2001:db8::1). Lookarounds instead of \b so addresses
+    # starting with ':' are still found; ipaddress does the real validation.
+    "ipv6": re.compile(
+        r"(?<![\w:.])(?:[0-9A-Fa-f]{0,4}:){2,}[0-9A-Fa-f:.]*(?![\w:])"
+    ),
     "md5": re.compile(r"\b[0-9a-fA-F]{32}\b"),
     "sha1": re.compile(r"\b[0-9a-fA-F]{40}\b"),
     "sha256": re.compile(r"\b[0-9a-fA-F]{64}\b"),
@@ -99,9 +104,10 @@ def strip_trailing(value: str) -> str:
 
 def is_private_ip(value: str) -> bool:
     try:
-        return ipaddress.ip_address(value).is_private or ipaddress.ip_address(value).is_loopback
+        addr = ipaddress.ip_address(value)
     except ValueError:
         return False
+    return addr.is_private or addr.is_loopback
 
 
 def valid_ipv4(value: str) -> bool:
@@ -125,8 +131,13 @@ def extract_host(url: str) -> str:
 # ---------------------------------------------------------------------------
 # Core extraction
 # ---------------------------------------------------------------------------
-def extract(text: str, wanted: set, refanged_text: str | None = None) -> dict:
-    """Return {(type, value): count} for the wanted IOC types."""
+def extract(text: str, wanted: set, refanged_text: str | None = None,
+            include_private: bool = False) -> dict:
+    """Return {(type, value): count} for the wanted IOC types.
+
+    Matching always runs on the refanged copy of the text; spans are
+    consistent within that copy, so the original is not needed here.
+    """
     counts: dict[tuple[str, str], int] = {}
     consumed: set[tuple[int, int]] = set()  # spans claimed by earlier types
 
@@ -169,7 +180,9 @@ def extract(text: str, wanted: set, refanged_text: str | None = None) -> dict:
                 value = value.upper()
 
             if itype == "ipv4":
-                if not valid_ipv4(value) or is_private_ip(value):
+                if not valid_ipv4(value):
+                    continue
+                if not include_private and is_private_ip(value):
                     continue
             elif itype == "ipv6":
                 if value.count(":") < 2:
@@ -178,7 +191,9 @@ def extract(text: str, wanted: set, refanged_text: str | None = None) -> dict:
                     addr = ipaddress.ip_address(value)
                 except ValueError:
                     continue
-                if addr.is_private or addr.is_loopback or addr.is_link_local:
+                if not include_private and (
+                    addr.is_private or addr.is_loopback or addr.is_link_local
+                ):
                     continue
                 value = addr.compressed
             elif itype == "url":
@@ -248,10 +263,16 @@ def main(argv: list[str] | None = None) -> int:
         help="only show IOCs seen at least N times (default: 1)",
     )
     parser.add_argument(
+        "--include-private", action="store_true",
+        help="also report private/loopback/link-local IPs "
+             "(skipped by default)",
+    )
+    fmt = parser.add_mutually_exclusive_group()
+    fmt.add_argument(
         "--json", action="store_true",
         help="output as JSON array",
     )
-    parser.add_argument(
+    fmt.add_argument(
         "--csv", action="store_true",
         help="output as CSV",
     )
@@ -300,8 +321,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         text = sys.stdin.read()
 
-    # --- extract (on refanged copy, spans map 1:1 for the patterns we use) ---
-    counts = extract(text, wanted, refang(text))
+    # --- extract (on refanged copy; spans are consistent within it) ---
+    counts = extract(text, wanted, refang(text),
+                     include_private=args.include_private)
 
     rows = sorted(
         ((t, v, c) for (t, v), c in counts.items() if c >= args.min_count),
