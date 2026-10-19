@@ -320,3 +320,28 @@ class TestTypesValidation(unittest.TestCase):
             rc = main(["--types", "ipv4", "tests/sample.log"])
         self.assertEqual(rc, 0)
         self.assertIn("ipv4", out.getvalue())
+
+
+class TestIncludePrivate(unittest.TestCase):
+    def _run(self, argv, inp):
+        import io as _io
+        old = sys.stdin
+        sys.stdin = _io.StringIO(inp)
+        try:
+            buf = _io.StringIO()
+            with redirect_stdout(buf), redirect_stderr(_io.StringIO()):
+                rc = main(argv)
+            return rc, buf.getvalue()
+        finally:
+            sys.stdin = old
+
+    def test_private_filtered_by_default(self):
+        rc, out = self._run([], "host 192.168.1.5 dan 45.155.204.9\n")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("192.168.1.5", out)
+        self.assertIn("45.155.204.9", out)
+
+    def test_include_private_flag(self):
+        rc, out = self._run(["--include-private"], "host 192.168.1.5\n")
+        self.assertEqual(rc, 0)
+        self.assertIn("192.168.1.5", out)
