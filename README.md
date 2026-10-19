@@ -98,6 +98,12 @@ rewrite, ReDoS regression tests, and a 2000-case crash fuzz.
 
 Edit `BENIGN_DOMAINS` in `ioc_hunt.py` to add/remove trusted domains. Private IP ranges are handled via `ipaddress` (no list to maintain).
 
+## Limitations
+
+- Domain/URL/email matching is ASCII-only by design — internationalized
+  (Unicode) domains are not extracted. Defanged forms are refanged first.
+- Heuristic triage: tune `BENIGN_DOMAINS` and `--min-count` for your logs.
+
 ## License
 
 MIT
