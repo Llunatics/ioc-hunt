@@ -283,3 +283,18 @@ class TestReDoS(unittest.TestCase):
         t0 = time.time()
         extract("a." * 20000 + "\n" + "1." * 10000, ALL)
         self.assertLess(time.time() - t0, 5)
+
+
+class TestMainErrors(unittest.TestCase):
+    def _run(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = main(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_file_is_directory(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            rc, _, err = self._run([d])
+            self.assertEqual(rc, 1)
+            self.assertIn("not a file", err)
