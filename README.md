@@ -89,7 +89,7 @@ Defanged input (`185.220[.]101[.]4`, `hxxp://…`, `soc[@]…`) is refanged befo
 python3 -m unittest discover -s tests
 ```
 
-44 tests: every IOC type, defanging, benign/private filtering, host
+48 tests: every IOC type, defanging, benign/private filtering, host
 folding, `--types`/`--min-count`/JSON/CSV, a golden test on
 `tests/sample.log`, an old-vs-new differential check on the extraction
 rewrite, ReDoS regression tests, and a 2000-case crash fuzz.
