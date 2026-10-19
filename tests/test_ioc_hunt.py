@@ -304,3 +304,19 @@ class TestSigpipe(unittest.TestCase):
     def test_broken_pipe_no_traceback(self):
         import signal
         self.assertEqual(signal.getsignal(signal.SIGPIPE), signal.SIG_DFL)
+
+
+class TestTypesValidation(unittest.TestCase):
+    def test_unknown_type_errors(self):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = main(["--types", "domain,bogus", "tests/sample.log"])
+        self.assertNotEqual(rc, 0)
+        self.assertIn("unknown type", err.getvalue())
+
+    def test_valid_types_subset(self):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = main(["--types", "ipv4", "tests/sample.log"])
+        self.assertEqual(rc, 0)
+        self.assertIn("ipv4", out.getvalue())
