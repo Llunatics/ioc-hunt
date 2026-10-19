@@ -170,6 +170,20 @@ class TestRenderTable(unittest.TestCase):
         self.assertIn("1.2.3.4", out)
         self.assertIn("1 unique IOC(s)", out)
 
+    def test_ansi_stripped(self):
+        # fuzz round 2: log jahat -> nilai IOC bawa ANSI escape
+        out = render_table([("url", "http://x.com/\x1b]0;pwned\x07", 1)])
+        self.assertNotIn("\x1b", out)
+        self.assertNotIn("\x07", out)
+        self.assertIn("http://x.com/", out)
+
+    def test_url_stops_at_control_char(self):
+        # fuzz round 2: regex URL tidak boleh match C0 control
+        rows = get("see http://x.com/\x1b]0;pwned\x07 now", {"url"})
+        vals = [v for (_, v) in rows]
+        self.assertTrue(all("\x1b" not in v for v in vals))
+        self.assertIn(("url", "http://x.com/"), rows)
+
 
 class TestMain(unittest.TestCase):
     def _run(self, argv, stdin_text=None):

@@ -48,16 +48,22 @@ cat firewall.log | ./ioc_hunt.py
 
 ```
 $ ./ioc_hunt.py tests/sample.log
-+--------+----------------------------------+-------+
-| type   | value                            | count |
-+--------+----------------------------------+-------+
-| ipv4   | 45.155.204.9                     |     3 |
-| cve    | CVE-2026-104935                  |     2 |
-| domain | login-secure.tk                  |     2 |
-| ipv4   | 185.220.101.4                    |     2 |
-| md5    | 5d41402abc4b2a76b9719d911017c592 |     2 |
-...
-+--------+----------------------------------+-------+
++--------+------------------------------------------------------------------+-------+
+| type   | value                                                            | count |
++--------+------------------------------------------------------------------+-------+
+| ipv4   | 45.155.204.9                                                     |     3 |
+| cve    | CVE-2026-104935                                                  |     2 |
+| domain | login-secure.tk                                                  |     2 |
+| ipv4   | 185.220.101.4                                                    |     2 |
+| md5    | 5d41402abc4b2a76b9719d911017c592                                 |     2 |
+| cve    | CVE-2024-1234                                                    |     1 |
+| email  | soc@evil-c2.example.net                                          |     1 |
+| ipv6   | 2606:4700:4700::1111                                             |     1 |
+| sha1   | da39a3ee5e6b4b0d3255bfef95601890afd80709                         |     1 |
+| sha256 | e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 |     1 |
+| url    | http://evil-c2.example.net:8080/beacon                           |     1 |
+| url    | http://malware-drop.ru/payload.exe                               |     1 |
++--------+------------------------------------------------------------------+-------+
 12 unique IOC(s)
 ```
 
@@ -89,7 +95,7 @@ Defanged input (`185.220[.]101[.]4`, `hxxp://…`, `soc[@]…`) is refanged befo
 python3 -m unittest discover -s tests
 ```
 
-48 tests: every IOC type, defanging, benign/private filtering, host
+52 tests: every IOC type, defanging, benign/private filtering, host
 folding, `--types`/`--min-count`/JSON/CSV, a golden test on
 `tests/sample.log`, an old-vs-new differential check on the extraction
 rewrite, ReDoS regression tests, and a 2000-case crash fuzz.

@@ -113,7 +113,9 @@ class _DomainFinder:
 PATTERNS = {
     "cve": re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE),
     "url": re.compile(
-        r"\bhttps?://[^\s<>'\"()\[\]{}]+", re.IGNORECASE
+        # fuzz round 2: [^\s...] juga match C0 control (\x1b dsb) -> injeksi
+        # ANSI via log jahat. Kecualikan eksplisit.
+        r"\bhttps?://[^\s\x00-\x1f\x7f<>'\"()\[\]{}]+", re.IGNORECASE
     ),
     "email": re.compile(
         r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
@@ -311,9 +313,19 @@ def extract(text: str, wanted: set,
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
+_TERM_UNSAFE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _term_safe(s):
+    return _TERM_UNSAFE.sub("", str(s))
+
+
 def render_table(rows: list[tuple[str, str, int]]) -> str:
     if not rows:
         return "No IOCs found."
+    # fuzz round 2: nilai IOC dari log jahat bisa membawa ANSI escape;
+    # sterilkan sebelum cetak ke terminal (--json/--csv tidak tersentuh).
+    rows = [(_term_safe(t), _term_safe(v), c) for t, v, c in rows]
     w_type = max(len("type"), max(len(t) for t, _, _ in rows))
     w_val = max(len("value"), max(len(v) for _, v, _ in rows))
     w_cnt = max(len("count"), max(len(str(c)) for _, _, c in rows))
