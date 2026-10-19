@@ -18,6 +18,13 @@ import json
 import re
 import sys
 
+# Clean exit on broken pipes (e.g. `ioc_hunt.py big.log | head`).
+try:
+    from signal import SIG_DFL, SIGPIPE, signal
+    signal(SIGPIPE, SIG_DFL)
+except Exception:
+    pass
+
 VERSION = "1.1.0"
 
 # ---------------------------------------------------------------------------

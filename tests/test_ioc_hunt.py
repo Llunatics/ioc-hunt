@@ -298,3 +298,9 @@ class TestMainErrors(unittest.TestCase):
             rc, _, err = self._run([d])
             self.assertEqual(rc, 1)
             self.assertIn("not a file", err)
+
+
+class TestSigpipe(unittest.TestCase):
+    def test_broken_pipe_no_traceback(self):
+        import signal
+        self.assertEqual(signal.getsignal(signal.SIGPIPE), signal.SIG_DFL)
