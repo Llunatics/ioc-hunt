@@ -10,6 +10,7 @@ Ctrl-C exits gracefully (130).
 """
 
 import argparse
+import bisect
 import csv
 import io
 import ipaddress
@@ -37,6 +38,68 @@ def refang(text: str) -> str:
     return text
 
 
+def _valid_label(label: str) -> bool:
+    return (1 <= len(label) <= 63 and label[0].isalnum()
+            and label[-1].isalnum()
+            and all(c.isalnum() or c == "-" for c in label))
+
+
+def _valid_tld(tld: str) -> bool:
+    return len(tld) >= 2 and all("a" <= c <= "z" or "A" <= c <= "Z"
+                                 for c in tld)
+
+
+class _MatchSpan:
+    """Minimal re.Match stand-in: only span() and group(0) are used."""
+    __slots__ = ("_start", "_end", "_text")
+
+    def __init__(self, start: int, end: int, text: str):
+        self._start = start
+        self._end = end
+        self._text = text
+
+    def span(self):
+        return (self._start, self._end)
+
+    def start(self):
+        return self._start
+
+    def end(self):
+        return self._end
+
+    def group(self, n=0):
+        assert n == 0
+        return self._text
+
+
+class _DomainFinder:
+    """Linear-time domain matcher.
+
+    The naive single-regex domain pattern
+    (?:label\\.)+[A-Za-z]{2,} backtracks catastrophically on repetitive
+    input like "a.a.a.a…" (0.6s for 4k chars → minutes for real logs).
+    Instead: match maximal dot-separated runs with a simple linear regex,
+    then validate labels in Python (O(n) total, zero backtracking).
+    """
+
+    _run = re.compile(
+        r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+        r"(?:\.(?!\.)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*"
+    )
+
+    def finditer(self, text):
+        for m in self._run.finditer(text):
+            run = m.group(0)
+            if "." not in run:
+                continue
+            labels = run.split(".")
+            if not _valid_tld(labels[-1]):
+                continue
+            if not all(_valid_label(l) for l in labels):
+                continue
+            yield _MatchSpan(m.start(), m.end(), run)
+
+
 # ---------------------------------------------------------------------------
 # IOC patterns (applied to refanged text)
 # ---------------------------------------------------------------------------
@@ -58,11 +121,10 @@ PATTERNS = {
     "md5": re.compile(r"\b[0-9a-fA-F]{32}\b"),
     "sha1": re.compile(r"\b[0-9a-fA-F]{40}\b"),
     "sha256": re.compile(r"\b[0-9a-fA-F]{64}\b"),
-    # domain must come after url/email so hosts are not double counted
-    "domain": re.compile(
-        r"\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
-        r"[A-Za-z]{2,}\b"
-    ),
+    # domain: matched by _DomainFinder (linear time), not a single regex —
+    # the classic (?:label\.)+[A-Za-z]{2,} pattern backtracks
+    # catastrophically on repetitive input ("a.a.a.a…").
+    "domain": _DomainFinder(),
 }
 
 # Shorthand aliases accepted by --types
@@ -124,95 +186,115 @@ def is_benign_domain(domain: str) -> bool:
 
 
 def extract_host(url: str) -> str:
-    m = re.match(r"https?://([^/:?\s]+)", url, re.IGNORECASE)
-    return m.group(1).lower() if m else ""
+    m = re.match(r"https?://([^/\s?#]+)", url, re.IGNORECASE)
+    if not m:
+        return ""
+    host = m.group(1).rsplit("@", 1)[-1]  # strip userinfo
+    if host.startswith("["):              # IPv6 literal: [::1]:8080
+        host = host.split("]", 1)[0] + "]"
+    else:
+        host = host.split(":", 1)[0]      # strip port
+    return host.lower().rstrip(".")
 
 
 # ---------------------------------------------------------------------------
 # Core extraction
 # ---------------------------------------------------------------------------
-def extract(text: str, wanted: set, refanged_text: str | None = None,
+def extract(text: str, wanted: set,
             include_private: bool = False) -> dict:
     """Return {(type, value): count} for the wanted IOC types.
 
-    Matching always runs on the refanged copy of the text; spans are
-    consistent within that copy, so the original is not needed here.
+    Matching always runs on the refanged copy of the text.
     """
     counts: dict[tuple[str, str], int] = {}
-    consumed: set[tuple[int, int]] = set()  # spans claimed by earlier types
+    src = refang(text)
 
-    src = refanged_text if refanged_text is not None else text
+    # Kumpulkan semua kandidat lalu sapu terurut berdasarkan posisi.
+    # Klaim berjalan dalam urutan start menaik; di antara span yang
+    # berawalan sama, yang terpanjang + url/email didahulukan supaya host
+    # URL/email tidak pernah dilaporkan sebagai domain polos.
+    # (start, -end, priority, itype, match)
+    cands: list[tuple[int, int, int, str, re.Match]] = []
+    for itype, prio in (("url", 0), ("email", 1)):
+        for m in PATTERNS[itype].finditer(src):
+            cands.append((m.start(), -m.end(), prio, itype, m))
+    for itype in TYPE_ORDER:
+        if itype not in wanted or itype in ("url", "email"):
+            continue  # url/email sudah ditambahkan di loop pertama
+        for m in PATTERNS[itype].finditer(src):
+            cands.append((m.start(), -m.end(), 2, itype, m))
+    cands.sort(key=lambda c: (c[0], c[1], c[2]))
+
+    # Span yang sudah diklaim, selalu terurut menaik berdasarkan start
+    # (append sesuai urutan sapu) -> cek overlap O(log n) via bisect.
+    claimed: list[tuple[int, int]] = []
+
+    def overlaps(start: int, end: int) -> bool:
+        i = bisect.bisect_left(claimed, (start, end))
+        if i > 0:
+            s, e = claimed[i - 1]
+            # claimed[i-1] mulai di/di bawah `start`: s < end otomatis.
+            if (s, e) != (start, end) and start < e:
+                return True
+        j = i
+        while j < len(claimed) and claimed[j][0] < end:
+            if claimed[j] != (start, end):
+                return True
+            j += 1
+        return False
 
     seen_hosts: set[str] = set()  # hosts already reported via url/email
 
-    # Always claim URL/email spans first so their hosts are never reported
-    # as bare domains, even when url/email are not in the wanted types.
-    for itype in ("url", "email"):
-        for m in PATTERNS[itype].finditer(src):
-            start, end = m.span()
-            # skip spans claimed by another match (same-span reclaim is fine)
-            if any(s < end and start < e and (s, e) != (start, end)
-                   for s, e in consumed):
-                continue
-            value = strip_trailing(m.group(0))
-            if itype == "url":
-                host = extract_host(value)
-                if host and not is_benign_domain(host):
-                    seen_hosts.add(host)
-            else:
-                host = value.split("@", 1)[1].lower() if "@" in value else ""
-                if host and not is_benign_domain(host):
-                    seen_hosts.add(host)
-            consumed.add((start, end))
-
-    for itype in TYPE_ORDER:
-        if itype not in wanted:
+    for start, neg_end, _prio, itype, m in cands:
+        end = -neg_end
+        if overlaps(start, end):
             continue
-        for m in PATTERNS[itype].finditer(src):
-            start, end = m.span()
-            # skip spans claimed by another match (same-span reclaim is fine)
-            if any(s < end and start < e and (s, e) != (start, end)
-                   for s, e in consumed):
+        value = strip_trailing(m.group(0))
+
+        if itype == "cve":
+            value = value.upper()
+
+        # Validate per type. Invalid values are dropped WITHOUT claiming
+        # the span (same as before); url/email spans are always claimed so
+        # their hosts are never double-reported as bare domains.
+        count_it = itype in wanted
+        if itype == "ipv4":
+            if not valid_ipv4(value):
                 continue
-            value = strip_trailing(m.group(0))
-
-            if itype == "cve":
-                value = value.upper()
-
-            if itype == "ipv4":
-                if not valid_ipv4(value):
-                    continue
-                if not include_private and is_private_ip(value):
-                    continue
-            elif itype == "ipv6":
-                if value.count(":") < 2:
-                    continue
-                try:
-                    addr = ipaddress.ip_address(value)
-                except ValueError:
-                    continue
-                if not include_private and (
-                    addr.is_private or addr.is_loopback or addr.is_link_local
-                ):
-                    continue
-                value = addr.compressed
-            elif itype == "url":
-                host = extract_host(value)
-                if not host or is_benign_domain(host):
-                    continue
+            if not include_private and is_private_ip(value):
+                continue
+        elif itype == "ipv6":
+            if value.count(":") < 2:
+                continue
+            try:
+                addr = ipaddress.ip_address(value)
+            except ValueError:
+                continue
+            if not include_private and (
+                addr.is_private or addr.is_loopback or addr.is_link_local
+            ):
+                continue
+            value = addr.compressed
+        elif itype == "url":
+            host = extract_host(value)
+            if host and not is_benign_domain(host):
                 seen_hosts.add(host)
-            elif itype == "email":
-                host = value.split("@", 1)[1].lower()
-                if is_benign_domain(host):
-                    continue
+            else:
+                count_it = False  # benign/empty host: claimed, not counted
+        elif itype == "email":
+            host = value.split("@", 1)[1].lower() if "@" in value else ""
+            if host and not is_benign_domain(host):
                 seen_hosts.add(host)
-            elif itype == "domain":
-                dom = value.lower().rstrip(".")
-                if is_benign_domain(dom) or dom in seen_hosts:
-                    continue
-                value = dom
+            else:
+                count_it = False
+        elif itype == "domain":
+            dom = value.lower().rstrip(".")
+            if is_benign_domain(dom) or dom in seen_hosts:
+                continue
+            value = dom
 
-            consumed.add((start, end))
+        claimed.append((start, end))  # urutan sapu = selalu terurut
+        if count_it:
             key = (itype, value)
             counts[key] = counts.get(key, 0) + 1
 
@@ -322,8 +404,7 @@ def main(argv: list[str] | None = None) -> int:
         text = sys.stdin.read()
 
     # --- extract (on refanged copy; spans are consistent within it) ---
-    counts = extract(text, wanted, refang(text),
-                     include_private=args.include_private)
+    counts = extract(text, wanted, include_private=args.include_private)
 
     rows = sorted(
         ((t, v, c) for (t, v), c in counts.items() if c >= args.min_count),

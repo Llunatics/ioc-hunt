@@ -83,6 +83,17 @@ Defanged input (`185.220[.]101[.]4`, `hxxp://…`, `soc[@]…`) is refanged befo
 | `1` | input/usage error (file not found, bad `--types`, …) |
 | `130` | interrupted with Ctrl-C |
 
+## Tests
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+44 tests: every IOC type, defanging, benign/private filtering, host
+folding, `--types`/`--min-count`/JSON/CSV, a golden test on
+`tests/sample.log`, an old-vs-new differential check on the extraction
+rewrite, ReDoS regression tests, and a 2000-case crash fuzz.
+
 ## Whitelist
 
 Edit `BENIGN_DOMAINS` in `ioc_hunt.py` to add/remove trusted domains. Private IP ranges are handled via `ipaddress` (no list to maintain).
