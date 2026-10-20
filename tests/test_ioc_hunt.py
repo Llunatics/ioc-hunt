@@ -136,6 +136,12 @@ class TestExtractTypes(unittest.TestCase):
         self.assertEqual(set(t for t, _ in r), {"domain"})
 
 
+    # Deep-8 I15: 2-letter TLD emails are valid IOCs.
+    def test_email_two_letter_tld(self):
+        r = get("hubungi admin@evil.co sekarang", {"email"})
+        self.assertEqual(r, {("email", "admin@evil.co"): 1})
+
+
 class TestExtractHost(unittest.TestCase):
     def test_simple(self):
         self.assertEqual(extract_host("http://example.com/a"), "example.com")
@@ -359,3 +365,25 @@ class TestIncludePrivate(unittest.TestCase):
         rc, out = self._run(["--include-private"], "host 192.168.1.5\n")
         self.assertEqual(rc, 0)
         self.assertIn("192.168.1.5", out)
+
+
+class TestRegressionDeep8Main(TestMain):
+    """Deep-8 I18/I19: sort order and the ip alias. Inherits _run from TestMain."""
+
+    # I18: rows are sorted by count DESCENDING.
+    def test_rows_sorted_by_count_descending(self):
+        rc, out, _ = self._run(["--json"],
+                               stdin_text="9.9.9.9 9.9.9.9 9.9.9.9 evil.com")
+        self.assertEqual(rc, 0)
+        data = json.loads(out)
+        self.assertEqual(data[0]["count"], 3)
+        self.assertEqual(data[-1]["count"], 1)
+
+    # I19: the `ip` alias expands to ipv4 AND ipv6.
+    def test_types_ip_alias_includes_ipv6(self):
+        rc, out, _ = self._run(["--types", "ip", "--json"],
+                               stdin_text="serangan dari 2606:4700:4700::1111 dan 8.8.8.8")
+        self.assertEqual(rc, 0)
+        types = {d["type"] for d in json.loads(out)}
+        self.assertIn("ipv6", types)
+        self.assertIn("ipv4", types)
